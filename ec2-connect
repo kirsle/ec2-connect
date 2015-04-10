@@ -1,0 +1,152 @@
+#!/usr/bin/env python
+
+"""ec2-connect: Helper script to manage SSH configurations per EC2 instance."""
+
+from __future__ import print_function, unicode_literals
+import os
+import os.path
+import sys
+import argparse
+import subprocess
+from ConfigParser import ConfigParser
+import boto.ec2
+
+class EC2Connect(object):
+    def __init__(self, args):
+        self.config_file = None
+        self.config      = None
+        self.id          = args.id
+        self.number      = args.number
+        self.name        = args.name
+        self.conn        = None
+        self.load_config()
+
+    def run(self):
+        # Sanity check, make sure they have settings for this name or ID.
+        if not self.config.has_section(self.name):
+            print("Your config file doesn't have any settings for that name"
+                " or ID. Edit {} to add the SSH information for this instance."\
+                .format(self.config_file))
+            sys.exit(1)
+
+        # Connect to EC2.
+        self.connect_ec2()
+
+        # Find the EC2 instance they wanted.
+        instance  = None
+        instances = []
+        reservations = self.conn.get_all_reservations()
+        for r in reservations:
+            for i in r.instances:
+                if self.id and i.id == self.name:
+                    instances.append(i)
+                elif i.tags.get("Name") == self.name:
+                    instances.append(i)
+
+        if len(instances) == 0:
+            print("No instances were found by that name.")
+            sys.exit(1)
+        elif len(instances) == 1:
+            instance = instances[0]
+        elif len(instances) > 1:
+            # More than one instance found. Sort them by ID for consistency.
+            instances = sorted(instances, key=lambda x: x.id)
+
+            # Which instance do they choose?
+            answer = -1
+            if self.number:
+                answer = self.number - 1
+            else:
+                print("More than one instance was found. Which one do you want?")
+                for i in range(0, len(instances)):
+                    print("{}. {} {}".format(
+                        i+1,
+                        instances[i].id,
+                        instances[i].public_dns_name,
+                    ))
+                answer = int(raw_input("Choice: "))
+                answer -= 1
+
+            if answer >= 0 and answer < len(instances):
+                instance = instances[answer]
+            else:
+                print("Answer is out of range.")
+                sys.exit(1)
+
+        print("Chosen instance: {}".format(instance.id))
+
+        # Prepare the SSH command.
+        self.ssh_into(instance)
+
+    def ssh_into(self, instance):
+        ssh = ["ssh"]
+        key = instance.id
+        if not self.id:
+            key = instance.tags.get("Name")
+
+        if self.config.get(key, "keyfile"):
+            ssh.append("-i")
+            ssh.append(self.config.get(key, "keyfile"))
+
+        ssh.append("{}@{}".format(
+            self.config.get(key, "username"),
+            instance.public_dns_name,
+        ))
+
+        print(" ".join(ssh))
+        subprocess.call(ssh)
+
+    def load_config(self):
+        # Config root folder.
+        root = "."
+        if os.environ.get("XDG_CONFIG_HOME"):
+            root = os.path.abspath(os.environ["XDG_CONFIG_HOME"])
+        elif os.environ.get("HOME"):
+            root = os.path.expanduser("~/.config")
+
+        config = os.path.join(root, "ec2-connect.ini")
+        self.config_file = config
+        print("Using configuration file: {}".format(config))
+        parser = ConfigParser()
+        parser.set("DEFAULT", "keyfile", "")
+        parser.set("DEFAULT", "username", "")
+
+        if os.path.isfile(config):
+            parser.read(config)
+        else:
+            # Initialize the default config file.
+            print("Creating initial config file at {}".format(config))
+            print("Edit this file and run the script again.")
+            parser.add_section("example-name-or-id")
+            parser.set("example-name-or-id", "username", "ec2-user")
+            parser.set("example-name-or-id", "keyfile", "/path/to/key.pem")
+            with open(config, "wb") as fh:
+                parser.write(fh)
+            sys.exit(1)
+
+        self.config = parser
+
+    def connect_ec2(self):
+        if not self.conn:
+            self.conn = boto.ec2.connect_to_region("us-east-1")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="EC2 Connection Helper")
+    parser.add_argument("--id", "-i",
+        action="store_true",
+        help="Find instance by ID instead of name.",
+    )
+    parser.add_argument("--number", "-n",
+        type=int,
+        help="If more than one instance matches the name, you will be "
+            "prompted to answer which one you want. Provide -n to "
+            "automatically choose that answer."
+    )
+    parser.add_argument("name",
+        type=str,
+        help="The name of the EC2 instance to connect to.",
+    )
+    args = parser.parse_args()
+
+    app = EC2Connect(args)
+    app.run()
