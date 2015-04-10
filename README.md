@@ -93,7 +93,7 @@ second one (sorted by ID) rather than be prompted for which one:
 # Full Usage
 
 ```
-usage: ec2-connect [-h] [--id] [--number NUMBER] name
+usage: ec2-connect [-h] [--region REGION] [--id] [--number NUMBER] name
 
 EC2 Connection Helper
 
@@ -102,6 +102,8 @@ positional arguments:
 
 optional arguments:
   -h, --help            show this help message and exit
+  --region REGION, -r REGION
+                        AWS region to connect to. Default is us-east-1.
   --id, -i              Find instance by ID instead of name.
   --number NUMBER, -n NUMBER
                         If more than one instance matches the name, you will

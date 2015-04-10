@@ -15,6 +15,7 @@ class EC2Connect(object):
     def __init__(self, args):
         self.config_file = None
         self.config      = None
+        self.region      = args.region
         self.id          = args.id
         self.number      = args.number
         self.name        = args.name
@@ -128,10 +129,15 @@ class EC2Connect(object):
 
     def connect_ec2(self):
         if not self.conn:
-            self.conn = boto.ec2.connect_to_region("us-east-1")
+            self.conn = boto.ec2.connect_to_region(self.region)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="EC2 Connection Helper")
+    parser.add_argument("--region", "-r",
+        type=str,
+        default="us-east-1",
+        help="AWS region to connect to. Default is us-east-1.",
+    )
     parser.add_argument("--id", "-i",
         action="store_true",
         help="Find instance by ID instead of name.",
